@@ -22,7 +22,7 @@
 //                 Halfdan Bechmann - halfdan.bechmann@silabs.com             //
 //                 Øystein Knauserud - oystein.knauserud@silabs.com           //
 //                                                                            //
-// Design Name:    cv32e40x_controller_bypass                                 //
+// Design Name:    cv32e40s_controller_bypass                                 //
 // Project Name:   CV32E40X                                                   //
 // Language:       SystemVerilog                                              //
 //                                                                            //
@@ -30,7 +30,7 @@
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 
-module cv32e40x_controller_bypass import cv32e40x_pkg::*;
+module cv32e40s_controller_bypass import cv32e40s_pkg::*;
   (
     // From controller_fsm
     input  logic        is_decoding_i,              // Core is in decoding state (from FSM)
@@ -203,4 +203,4 @@ module cv32e40x_controller_bypass import cv32e40x_pkg::*;
     end
   end
 
-endmodule // cv32e40x_controller_bypass
+endmodule // cv32e40s_controller_bypass

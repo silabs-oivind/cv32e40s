@@ -28,7 +28,7 @@
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 
-module cv32e40x_core import cv32e40x_pkg::*;
+module cv32e40s_core import cv32e40s_pkg::*;
 #(
   parameter NUM_MHPMCOUNTERS             =  1,
   parameter LIB                          =  0,
@@ -308,7 +308,7 @@ module cv32e40x_core import cv32e40x_pkg::*;
   logic        clk;
   logic        fetch_enable;
 
-  cv32e40x_sleep_unit
+  cv32e40s_sleep_unit
     #(.LIB (LIB))
   sleep_unit_i
   (
@@ -343,7 +343,7 @@ module cv32e40x_core import cv32e40x_pkg::*;
   //  |___|_|     |____/ |_/_/   \_\____|_____|   //
   //                                              //
   //////////////////////////////////////////////////
-  cv32e40x_if_stage
+  cv32e40s_if_stage
     #(.A_EXTENSION(A_EXTENSION),
       .PMA_NUM_REGIONS(PMA_NUM_REGIONS),
       .PMA_CFG(PMA_CFG))
@@ -411,7 +411,7 @@ module cv32e40x_core import cv32e40x_pkg::*;
   //  |___|____/  |____/ |_/_/   \_\____|_____|  //
   //                                             //
   /////////////////////////////////////////////////
-  cv32e40x_id_stage
+  cv32e40s_id_stage
   #(
     .USE_PMP                      ( USE_PMP                ),
     .A_EXTENSION                  ( A_EXTENSION            ),
@@ -520,7 +520,7 @@ module cv32e40x_core import cv32e40x_pkg::*;
   //  |_____/_/\_\ |____/ |_/_/   \_\____|_____|     //
   //                                                 //
   /////////////////////////////////////////////////////
-  cv32e40x_ex_stage
+  cv32e40s_ex_stage
   ex_stage_i
   (
     .clk                        ( clk                          ),
@@ -563,7 +563,7 @@ module cv32e40x_core import cv32e40x_pkg::*;
   //                                                                                    //
   ////////////////////////////////////////////////////////////////////////////////////////
 
-  cv32e40x_load_store_unit
+  cv32e40s_load_store_unit
     #(.A_EXTENSION(A_EXTENSION),
       .PMA_NUM_REGIONS(PMA_NUM_REGIONS),
       .PMA_CFG(PMA_CFG))
@@ -596,7 +596,7 @@ module cv32e40x_core import cv32e40x_pkg::*;
   // Write back stage                                                                   //
   ////////////////////////////////////////////////////////////////////////////////////////
 
-  cv32e40x_wb_stage
+  cv32e40s_wb_stage
   wb_stage_i
   (
     // EX/WB pipeline
@@ -625,7 +625,7 @@ module cv32e40x_core import cv32e40x_pkg::*;
   //   Control and Status Registers   //
   //////////////////////////////////////
 
-  cv32e40x_cs_registers
+  cv32e40s_cs_registers
   #(
     .A_EXTENSION      ( A_EXTENSION           ),
     .USE_PMP          ( USE_PMP               ),
@@ -702,7 +702,7 @@ module cv32e40x_core import cv32e40x_pkg::*;
   //                                                                //
   ////////////////////////////////////////////////////////////////////
 
-  cv32e40x_controller
+  cv32e40s_controller
   controller_i
   (
     .clk                            ( clk                    ),         // Gated clock
@@ -830,7 +830,7 @@ module cv32e40x_core import cv32e40x_pkg::*;
 //                                                                    //
 ////////////////////////////////////////////////////////////////////////
   
-  cv32e40x_int_controller
+  cv32e40s_int_controller
   int_controller_i
   (
     .clk                  ( clk                ),
@@ -839,12 +839,12 @@ module cv32e40x_core import cv32e40x_pkg::*;
     // External interrupt lines
     .irq_i                ( irq_i              ),
 
-    // To cv32e40x_controller
+    // To cv32e40s_controller
     .irq_req_ctrl_o       ( irq_req_ctrl       ),
     .irq_id_ctrl_o        ( irq_id_ctrl        ),
     .irq_wu_ctrl_o        ( irq_wu_ctrl        ),
 
-    // To/from with cv32e40x_cs_registers
+    // To/from with cv32e40s_cs_registers
     .mie_bypass_i         ( mie_bypass         ),
     .mip_o                ( mip                ),
     .m_ie_i               ( m_irq_enable       ),
@@ -865,7 +865,7 @@ module cv32e40x_core import cv32e40x_pkg::*;
   assign regfile_waddr[0] = rf_waddr_wb;
   assign regfile_wdata[0] = rf_wdata_wb;
 
-  cv32e40x_register_file_wrapper
+  cv32e40s_register_file_wrapper
   register_file_wrapper_i
   (
     .clk                ( clk                ),

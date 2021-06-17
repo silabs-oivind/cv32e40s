@@ -25,7 +25,7 @@
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 
-module cv32e40x_alu import cv32e40x_pkg::*;
+module cv32e40s_alu import cv32e40s_pkg::*;
 (
   input  logic                     clk,
   input  logic                     rst_n,
@@ -212,7 +212,7 @@ module cv32e40x_alu import cv32e40x_pkg::*;
     end
   endgenerate
   
-  cv32e40x_ff_one ff_one_i
+  cv32e40s_ff_one ff_one_i
   (
     .in_i        ( div_clz_data_rev ),
     .first_one_o ( ff1_result ),

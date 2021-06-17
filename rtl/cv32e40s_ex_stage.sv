@@ -29,7 +29,7 @@
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 
-module cv32e40x_ex_stage import cv32e40x_pkg::*;
+module cv32e40s_ex_stage import cv32e40s_pkg::*;
 (
   input  logic        clk,
   input  logic        rst_n,
@@ -113,7 +113,7 @@ module cv32e40x_ex_stage import cv32e40x_pkg::*;
   //                        //
   ////////////////////////////
   
-  cv32e40x_alu alu_i
+  cv32e40s_alu alu_i
   (
     .clk                 ( clk                        ),
     .rst_n               ( rst_n                      ),
@@ -152,7 +152,7 @@ module cv32e40x_ex_stage import cv32e40x_pkg::*;
   // Inputs A and B are swapped in ID stage.
   // This is done becase the divider utilizes the shifter in the ALU to shift the divisor (div_i.op_b_i), and the ALU
   // shifter operates on alu_i.operand_a_i
-   cv32e40x_div div_i
+   cv32e40s_div div_i
      (
       .clk                ( clk                        ),
       .rst_n              ( rst_n                      ),
@@ -191,7 +191,7 @@ module cv32e40x_ex_stage import cv32e40x_pkg::*;
   //                                                            //
   ////////////////////////////////////////////////////////////////
 
-  cv32e40x_mult mult_i
+  cv32e40s_mult mult_i
   (
     .clk             ( clk                           ),
     .rst_n           ( rst_n                         ),
@@ -279,4 +279,4 @@ module cv32e40x_ex_stage import cv32e40x_pkg::*;
                       lsu_ready_ex_i &&
                       wb_ready_i;
   
-endmodule // cv32e40x_ex_stage
+endmodule // cv32e40s_ex_stage

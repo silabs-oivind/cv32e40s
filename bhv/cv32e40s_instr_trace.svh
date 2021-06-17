@@ -21,7 +21,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 // Engineer:       Steve Richmond - steve.richmond@silabs.com                 //
 //                                                                            //
-// Design Name:    cv32e40x_tracer data structures                            //
+// Design Name:    cv32e40s_tracer data structures                            //
 // Project Name:   CV32E40X                                                   //
 // Language:       SystemVerilog                                              //
 //                                                                            //

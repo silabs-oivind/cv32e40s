@@ -18,9 +18,9 @@
 // Contributors: Davide Schiavone <davide@openhwgroup.org>
 //               Halfdan Bechmann <halfdan.bechmann@silabs.com>
 
-module cv32e40x_rvfi
-  import cv32e40x_pkg::*;
-  import cv32e40x_rvfi_pkg::*;
+module cv32e40s_rvfi
+  import cv32e40s_pkg::*;
+  import cv32e40s_rvfi_pkg::*;
   (
   input logic                                clk_i,
   input logic                                rst_ni,
@@ -365,7 +365,7 @@ module cv32e40x_rvfi
   logic         is_dret_wb;
 
 `ifdef CV32E40X_TRACE_EXECUTION
-  `include "cv32e40x_rvfi_trace.svh"
+  `include "cv32e40s_rvfi_trace.svh"
 `endif
 
   rvfi_instr_t rvfi_stage [RVFI_STAGES];
@@ -483,7 +483,7 @@ module cv32e40x_rvfi
           if(instr_id_done && !lsu_is_misaligned_ex_i) begin
             // Both cycles of misaligned memory access set done flag in ID, counted as single instruction in rvfi.
 
-            rvfi_stage[i].rvfi_halt      <= 1'b0; // Fixme: Check assumption about no intruction causing halt in cv32e40x
+            rvfi_stage[i].rvfi_halt      <= 1'b0; // Fixme: Check assumption about no intruction causing halt in cv32e40s
             rvfi_stage[i].rvfi_trap      <= illegal_insn_id_i;
             rvfi_stage[i].rvfi_intr      <= 1'b0;
             rvfi_stage[i].rvfi_order     <= rvfi_stage[i].rvfi_order + 64'b1;
@@ -1100,5 +1100,5 @@ module cv32e40x_rvfi
   assign rvfi_csr_hpmcounterh_wdata       = rvfi_stage[2].rvfi_csr_wdata.hpmcounterh;
   assign rvfi_csr_hpmcounterh_wmask       = rvfi_stage[2].rvfi_csr_wmask.hpmcounterh;
 
-endmodule // cv32e40x_rvfi
+endmodule // cv32e40s_rvfi
 
