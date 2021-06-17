@@ -26,8 +26,9 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 module cv32e40x_if_stage import cv32e40x_pkg::*;
-  #(parameter int unsigned PMA_NUM_REGIONS = 1,
-    parameter pma_region_t PMA_CFG[PMA_NUM_REGIONS-1:0] = '{PMA_R_DEFAULT})
+  #(parameter bit          A_EXTENSION     = 0,
+    parameter int unsigned PMA_NUM_REGIONS = 0,
+    parameter pma_region_t PMA_CFG[(PMA_NUM_REGIONS ? (PMA_NUM_REGIONS-1) : 0):0] = '{default:PMA_R_DEFAULT})
 (
     input  logic        clk,
     input  logic        rst_n,
@@ -44,6 +45,9 @@ module cv32e40x_if_stage import cv32e40x_pkg::*;
 
     // instruction request control
     input  logic        req_i,
+
+    // kill instruction
+    input  logic        kill_if_i,
 
     // instruction cache interface
     if_c_obi.master     m_c_obi_instr_if,
@@ -68,7 +72,7 @@ module cv32e40x_if_stage import cv32e40x_pkg::*;
 
     // jump and branch target and decision
     input  logic [31:0] jump_target_id_i,      // jump target address
-    input  logic [31:0] jump_target_ex_i,      // jump target address
+    input  logic [31:0] branch_target_ex_i,      // jump target address
 
     // pipeline stall
     input  logic        halt_if_i,
@@ -88,10 +92,7 @@ module cv32e40x_if_stage import cv32e40x_pkg::*;
 
   logic       [31:0] exc_pc;
 
-  logic              aligner_ready;
-
   logic              prefetch_valid;
-  logic              prefetch_ready;
   inst_resp_t        prefetch_instr;
 
   logic              illegal_c_insn;
@@ -111,7 +112,9 @@ module cv32e40x_if_stage import cv32e40x_pkg::*;
   obi_inst_resp_t    bus_resp;
   logic              bus_trans_valid;
   logic              bus_trans_ready;
-  logic [31:0]       bus_trans_addr;
+  obi_inst_req_t     bus_trans;
+  obi_inst_req_t     core_trans;
+
 
   // exception PC selection mux
   always_comb
@@ -134,7 +137,7 @@ module cv32e40x_if_stage import cv32e40x_pkg::*;
     unique case (pc_mux_i)
       PC_BOOT:      branch_addr_n = {boot_addr_i[31:2], 2'b0};
       PC_JUMP:      branch_addr_n = jump_target_id_i;
-      PC_BRANCH:    branch_addr_n = jump_target_ex_i;
+      PC_BRANCH:    branch_addr_n = branch_target_ex_i;
       PC_EXCEPTION: branch_addr_n = exc_pc;             // set PC to exception handler
       PC_MRET:      branch_addr_n = mepc_i; // PC is restored when returning from IRQ/exception
       PC_DRET:      branch_addr_n = dpc_i; //
@@ -152,12 +155,14 @@ module cv32e40x_if_stage import cv32e40x_pkg::*;
     .clk               ( clk                         ),
     .rst_n             ( rst_n                       ),
 
+    .kill_if_i         ( kill_if_i                   ),
+
     .prefetch_en_i     ( req_i                       ),
 
     .branch_i          ( branch_req                  ),
     .branch_addr_i     ( {branch_addr_n[31:1], 1'b0} ),
 
-    .prefetch_ready_i  ( prefetch_ready              ),
+    .prefetch_ready_i  ( if_ready                    ),
     .prefetch_valid_o  ( prefetch_valid              ),
     .prefetch_instr_o  ( prefetch_instr              ),
     .prefetch_addr_o   ( pc_if_o                     ),
@@ -175,37 +180,43 @@ module cv32e40x_if_stage import cv32e40x_pkg::*;
 );
 
 
-//////////////////////////////////////////////////////////////////////////////
-// MPU
-//////////////////////////////////////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////////
+  // MPU
+  //////////////////////////////////////////////////////////////////////////////
+
+  assign core_trans.addr = prefetch_trans_addr;
+  assign core_trans.prot[0]   = 1'b0;  // Transfers from IF stage are instruction transfers
+  assign core_trans.prot[2:1] = PRIV_LVL_M; // Machine mode
+  assign core_trans.memtype   = 2'b00; // memtype is assigned in the MPU, tie off.
   
-cv32e40x_mpu
-  #(.RESP_TYPE(inst_resp_t),
-    .PMA_NUM_REGIONS(PMA_NUM_REGIONS),
-    .PMA_CFG(PMA_CFG))
+  cv32e40x_mpu
+    #(.IF_STAGE(1),
+      .A_EXTENSION(A_EXTENSION),
+      .CORE_REQ_TYPE(obi_inst_req_t),
+      .CORE_RESP_TYPE(inst_resp_t),
+      .BUS_RESP_TYPE(obi_inst_resp_t),
+      .PMA_NUM_REGIONS(PMA_NUM_REGIONS),
+      .PMA_CFG(PMA_CFG))
   mpu_i
     (
-     .clk                  (clk),
-     .rst_n                (rst_n),
-     .speculative_access_i (1'b1), // Instruction fetches are speculative
-     .atomic_access_i      (1'b0), // No atomic transfers on instruction side
-     .execute_access_i     (1'b1), // All accesses are intended for execution
-     .core_trans_we_i      (1'b0), // No writes in instructions side
+     .clk                  ( clk   ),
+     .rst_n                ( rst_n ),
+     .speculative_access_i ( 1'b1  ), // Instruction fetches are speculative
+     .atomic_access_i      ( 1'b0  ), // No atomic transfers on instruction side
+     .execute_access_i     ( 1'b1  ), // All accesses are intended for execution
+
+     .core_one_txn_pend_n  ( prefetch_one_txn_pend_n ),
+     .core_trans_valid_i   ( prefetch_trans_valid    ),
+     .core_trans_ready_o   ( prefetch_trans_ready    ),
+     .core_trans_i         ( core_trans              ),
+     .core_resp_valid_o    ( prefetch_resp_valid     ),
+     .core_resp_o          ( prefetch_inst_resp      ),
      
-     .bus_trans_addr_o            (bus_trans_addr[31:0]),
-     .bus_trans_valid_o           (bus_trans_valid),
-     .bus_trans_cacheable_o       (), // TODO:OE connect to obi.prot[X]
-     .bus_trans_bufferable_o      (), // Not used on instruction side
-     .bus_trans_ready_i           (bus_trans_ready),
-     .bus_resp_valid_i            (bus_resp_valid),
-     .bus_resp_i                  (bus_resp      ),
-     
-     .core_trans_ready_o         (prefetch_trans_ready),
-     .core_resp_valid_o          (prefetch_resp_valid),
-     .core_trans_addr_i          (prefetch_trans_addr[31:0]),
-     .core_trans_valid_i         (prefetch_trans_valid),
-     .core_inst_resp_o           (prefetch_inst_resp),
-     .core_one_txn_pend_n        (prefetch_one_txn_pend_n));
+     .bus_trans_valid_o    ( bus_trans_valid ),
+     .bus_trans_ready_i    ( bus_trans_ready ),
+     .bus_trans_o          ( bus_trans       ),
+     .bus_resp_valid_i     ( bus_resp_valid  ),
+     .bus_resp_i           ( bus_resp        ));
 
 //////////////////////////////////////////////////////////////////////////////
 // OBI interface
@@ -219,7 +230,7 @@ instruction_obi_i
 
   .trans_valid_i         ( bus_trans_valid   ),
   .trans_ready_o         ( bus_trans_ready   ),
-  .trans_addr_i          ( bus_trans_addr    ),
+  .trans_i               ( bus_trans         ),
 
   .resp_valid_o          ( bus_resp_valid    ),
   .resp_o                ( bus_resp          ),
@@ -228,20 +239,17 @@ instruction_obi_i
 
   // We are 'missing' in the if stage if we don't have a valid instruction
   // when the pipeline is ready and we are not branching
-  assign perf_imiss_o = !branch_req && (if_valid && !prefetch_valid);
+  assign perf_imiss_o = !branch_req && if_ready && !halt_if_i && !prefetch_valid;
 
   // Signal branch on pc_set_i
   assign branch_req = pc_set_i;
 
   // if_stage ready if id_stage is ready
-  assign if_ready = id_ready_i;
+  assign if_ready = id_ready_i && !halt_if_i;
 
-  // if stage valid if we are ready and not commanded to halt
-  assign if_valid = if_ready && !halt_if_i;
+  // if stage valid when prefetcher is valid and we are ready
+  assign if_valid = if_ready && prefetch_valid;
 
-  // Handshake to pop instruction from alignment_buffer
-  // when we issue a new instruction
-  assign prefetch_ready = if_valid;
   assign if_busy_o    = prefetch_busy;
 
 
@@ -250,25 +258,27 @@ instruction_obi_i
   begin : IF_ID_PIPE_REGISTERS
     if (rst_n == 1'b0)
     begin
-      if_id_pipe_o.instr_valid     <= 1'b0;
-      if_id_pipe_o.instr           <= INST_RESP_RESET_VAL;
-      if_id_pipe_o.pc              <= '0;
-      if_id_pipe_o.is_compressed   <= 1'b0;
-      if_id_pipe_o.illegal_c_insn  <= 1'b0;
+      if_id_pipe_o.instr_valid      <= 1'b0;
+      if_id_pipe_o.instr            <= INST_RESP_RESET_VAL;
+      if_id_pipe_o.pc               <= '0;
+      if_id_pipe_o.is_compressed    <= 1'b0;
+      if_id_pipe_o.illegal_c_insn   <= 1'b0;
+      if_id_pipe_o.compressed_instr <= '0;
     end
     else
     begin
       // Valid pipeline output if we are valid AND the
       // alignment buffer has a valid instruction
-      if (if_valid && prefetch_valid)
+      if (if_valid)
       begin
-        if_id_pipe_o.instr_valid     <= 1'b1;
-        if_id_pipe_o.instr           <= instr_decompressed;
-        if_id_pipe_o.is_compressed   <= instr_compressed_int;
-        if_id_pipe_o.illegal_c_insn  <= illegal_c_insn;
-        if_id_pipe_o.pc              <= pc_if_o;
+        if_id_pipe_o.instr_valid      <= 1'b1;
+        if_id_pipe_o.instr            <= instr_decompressed;
+        if_id_pipe_o.is_compressed    <= instr_compressed_int;
+        if_id_pipe_o.illegal_c_insn   <= illegal_c_insn;
+        if_id_pipe_o.pc               <= pc_if_o;
+        if_id_pipe_o.compressed_instr <= prefetch_instr.bus_resp.rdata[15:0];
       end else if (clear_instr_valid_i) begin
-        if_id_pipe_o.instr_valid     <= 1'b0;
+        if_id_pipe_o.instr_valid      <= 1'b0;
       end
     end
   end

@@ -34,19 +34,20 @@ package cv32e40x_pkg;
 //        |_|                                 //
 ////////////////////////////////////////////////
 
-parameter OPCODE_SYSTEM    = 7'h73;
-parameter OPCODE_FENCE     = 7'h0f;
-parameter OPCODE_OP        = 7'h33;
-parameter OPCODE_OPIMM     = 7'h13;
-parameter OPCODE_STORE     = 7'h23;
-parameter OPCODE_LOAD      = 7'h03;
-parameter OPCODE_BRANCH    = 7'h63;
-parameter OPCODE_JALR      = 7'h67;
-parameter OPCODE_JAL       = 7'h6f;
-parameter OPCODE_AUIPC     = 7'h17;
-parameter OPCODE_LUI       = 7'h37;
-parameter OPCODE_AMO       = 7'h2F;
-  
+  typedef enum logic [6:0] {
+                            OPCODE_SYSTEM    = 7'h73,
+                            OPCODE_FENCE     = 7'h0f,
+                            OPCODE_OP        = 7'h33,
+                            OPCODE_OPIMM     = 7'h13,
+                            OPCODE_STORE     = 7'h23,
+                            OPCODE_LOAD      = 7'h03,
+                            OPCODE_BRANCH    = 7'h63,
+                            OPCODE_JALR      = 7'h67,
+                            OPCODE_JAL       = 7'h6f,
+                            OPCODE_AUIPC     = 7'h17,
+                            OPCODE_LUI       = 7'h37,
+                            OPCODE_AMO       = 7'h2F
+                            } opcode_e;
                                                                        
 //////////////////////////////////////////////////////////////////////////////
 //      _    _    _   _    ___                       _   _                  //
@@ -59,14 +60,15 @@ parameter OPCODE_AMO       = 7'h2F;
 
 parameter ALU_OP_WIDTH = 5;
 
+  // TODO: Could a smarter encoding be used here?
 typedef enum logic [ALU_OP_WIDTH-1:0]
 {
- ALU_ADD   = 5'b11000,
- ALU_SUB   = 5'b11001,
+ ALU_ADD   = 5'b01000,
+ ALU_SUB   = 5'b01001,
  
  ALU_XOR   = 5'b01111,
  ALU_OR    = 5'b01110,
- ALU_AND   = 5'b10101,
+ ALU_AND   = 5'b00110,
 
 // Shifts
  ALU_SRA   = 5'b00100,
@@ -85,23 +87,32 @@ typedef enum logic [ALU_OP_WIDTH-1:0]
  ALU_SLTS  = 5'b00010,
  ALU_SLTU  = 5'b00011,
 
-// div/rem
- ALU_DIVU  = 5'b10000,
- ALU_DIV   = 5'b10001,
- ALU_REMU  = 5'b10010,
- ALU_REM   = 5'b10011
- 
+  // B, Zba
+ ALU_B_SH1ADD = 5'b11100,
+ ALU_B_SH2ADD = 5'b11101,
+ ALU_B_SH3ADD = 5'b11110
 } alu_opcode_e;
+
   
 parameter MUL_OP_WIDTH = 1;
 
 typedef enum logic [MUL_OP_WIDTH-1:0]
 {
-
- MUL_M32   = 1'b0,
- MUL_H     = 1'b1
-
+ MUL_M32 = 1'b0,
+ MUL_H   = 1'b1
  } mul_opcode_e;
+
+parameter DIV_OP_WIDTH = 2;
+
+typedef enum logic [DIV_OP_WIDTH-1:0]
+{
+
+ DIV_DIVU= 2'b00,
+ DIV_DIV = 2'b01,
+ DIV_REMU= 2'b10,
+ DIV_REM = 2'b11
+
+ } div_opcode_e;
 
 // FSM state encoding
 typedef enum logic [4:0] { RESET, BOOT_SET, SLEEP, WAIT_SLEEP, FIRST_FETCH,
@@ -123,7 +134,7 @@ typedef enum logic {IDLE, BRANCH_WAIT} prefetch_state_e;
 typedef enum logic [1:0] {ALBL, ALBH, AHBL, AHBH} mult_state_e;
 
 // ALU divider FSM state encoding
-typedef enum logic [1:0] {DIV_IDLE, DIV_DIVIDE, DIV_FINISH} div_state_e;
+typedef enum logic [1:0] {DIV_IDLE, DIV_DIVIDE, DIV_DUMMY, DIV_FINISH} div_state_e;
 
 
 /////////////////////////////////////////////////////////
@@ -555,7 +566,7 @@ parameter logic [31:0] TMATCH_CONTROL_RST_VAL = {
 
 // Register file read/write ports
 parameter REGFILE_NUM_READ_PORTS  = 2;
-parameter REGFILE_NUM_WRITE_PORTS = 2;
+parameter REGFILE_NUM_WRITE_PORTS = 1;
 
 // Address width of register file
 parameter REGFILE_ADDR_WIDTH = 5;
@@ -578,6 +589,11 @@ typedef enum logic[1:0] {
                          SEL_FW_EX   = 2'b01,
                          SEL_FW_WB   = 2'b10
                          } op_fw_mux_e;
+
+typedef enum logic {
+                         SELJ_REGFILE = 1'b0,
+                         SELJ_FW_WB   = 1'b1
+                         } jalr_fw_mux_e;
 
 // operand a selection
 typedef enum logic[1:0] {
@@ -614,7 +630,7 @@ typedef enum logic[1:0] {
 typedef enum logic[1:0] {
                          OP_C_FWD         = 2'b00,
                          OP_C_REGB_OR_FWD = 2'b01,
-                         OP_C_JT          = 2'b10
+                         OP_C_BCH         = 2'b10
                          } op_c_mux_e;
 
 // branch types
@@ -644,57 +660,6 @@ parameter AMO_MAX  = 5'b10100;
 parameter AMO_MINU = 5'b11000;
 parameter AMO_MAXU = 5'b11100;
 
-// ID/EX pipeline
-typedef struct packed {
-
-  // ALU Control
-  logic         alu_en;
-  alu_opcode_e  alu_operator;      
-  logic [31:0]  alu_operand_a;     
-  logic [31:0]  alu_operand_b;     
-  logic [31:0]  operand_c; // Gated with alu_en but not used by ALU
-
-  // Multiplier control
-  logic         mult_en;           
-  mul_opcode_e  mult_operator;     
-  logic [31:0]  mult_operand_a;    
-  logic [31:0]  mult_operand_b;    
-  logic [ 1:0]  mult_signed_mode;  
-  
-  // Register write control
-  logic         rf_we;
-  rf_addr_t     rf_waddr; 
-
-  logic prepost_useincr;
-
-  // CSR control
-  logic         csr_access;
-  logic         csr_en;
-
-  csr_opcode_e  csr_op;            
-
-  // Data Memory Control:  From ID stage (id-ex pipe) <--> load store unit
-  logic         data_req;          
-  logic         data_we;           
-  logic [1:0]   data_type;         
-  logic         data_sign_ext;     
-  logic [1:0]   data_reg_offset;   
-  logic         data_misaligned;   
-  logic [5:0]   data_atop;             
-
-  // PC of last executed branch
-  logic [31:0]  pc;
-
-  // Branch target
-  logic         branch_in_ex;
-} id_ex_pipe_t;
-
-// EX/WB pipeline
-typedef struct packed {
-  logic         rf_we;
-  rf_addr_t     rf_waddr;
-  logic [31:0]  rf_wdata;
-} ex_wb_pipe_t;
 
 // Decoder control signals
 typedef struct packed {
@@ -710,12 +675,13 @@ typedef struct packed {
   mul_opcode_e                       mult_operator;
   logic                              mult_en;
   logic [1:0]                        mult_signed_mode;
+  logic                              div_en;
+  div_opcode_e                       div_operator;
   logic [REGFILE_NUM_READ_PORTS-1:0] rf_re;
   logic                              rf_we;
   logic                              prepost_useincr;
   logic                              csr_en;
   logic                              csr_status;
-  logic                              csr_illegal;
   csr_opcode_e                       csr_op;
   logic                              mret_insn;
   logic                              dret_insn;
@@ -730,8 +696,6 @@ typedef struct packed {
   logic                              ecall_insn;
   logic                              wfi_insn;
   logic                              fencei_insn;
-  logic                              mret_dec;
-  logic                              dret_dec;
 } decoder_ctrl_t;
 
   parameter decoder_ctrl_t DECODER_CTRL_ILLEGAL_INSN =  '{ctrl_transfer_insn           : BRANCH_NONE,
@@ -746,12 +710,13 @@ typedef struct packed {
                                                           mult_operator                : MUL_M32,
                                                           mult_en                      : 1'b0,
                                                           mult_signed_mode             : 2'b00,
+                                                          div_en                       : 1'b0,
+                                                          div_operator                 : DIV_DIVU,
                                                           rf_re                        : 2'b00,
                                                           rf_we                        : 1'b0,
                                                           prepost_useincr              : 1'b1,
                                                           csr_en                       : 1'b0,
                                                           csr_status                   : 1'b0,
-                                                          csr_illegal                  : 1'b0,
                                                           csr_op                       : CSR_OP_READ,
                                                           mret_insn                    : 1'b0,
                                                           dret_insn                    : 1'b0,
@@ -765,9 +730,7 @@ typedef struct packed {
                                                           ebrk_insn                    : 1'b0,
                                                           ecall_insn                   : 1'b0,
                                                           wfi_insn                     : 1'b0,
-                                                          fencei_insn                  : 1'b0,
-                                                          mret_dec                     : 1'b0,
-                                                          dret_dec                     : 1'b0
+                                                          fencei_insn                  : 1'b0
                                                           };
 
 ///////////////////////////////////////////////
@@ -838,13 +801,21 @@ typedef struct packed {
   logic        atomic;
 } pma_region_t;
 
-// Default attribution (Address is don't care)
+// Default attribution when PMA is not configured (PMA_NUM_REGIONS=0) (Address is don't care)
+parameter pma_region_t NO_PMA_R_DEFAULT = '{word_addr_low   : 0, 
+                                            word_addr_high  : 0,
+                                            main            : 1'b1,
+                                            bufferable      : 1'b0,
+                                            cacheable       : 1'b0,
+                                            atomic          : 1'b1};
+  
+// Default attribution when PMA is configured (Address is don't care)
 parameter pma_region_t PMA_R_DEFAULT = '{word_addr_low   : 0, 
                                          word_addr_high  : 0,
-                                         main            : 1'b1,
-                                         bufferable      : 1'b1,
-                                         cacheable       : 1'b1,
-                                         atomic          : 1'b1};
+                                         main            : 1'b0,
+                                         bufferable      : 1'b0,
+                                         cacheable       : 1'b0,
+                                         atomic          : 1'b0};
 
 // MPU status. Used for PMA and PMP
 typedef enum logic [1:0] {
@@ -863,7 +834,21 @@ parameter DATA_ADDR_WIDTH = 32;
 parameter DATA_DATA_WIDTH = 32;
 
 typedef struct packed {
+  logic        req;
+} obi_req_t;
+
+typedef struct packed {
+  logic        gnt;
+} obi_gnt_t;
+
+typedef struct packed {
+  logic        rvalid;
+} obi_rvalid_t;
+
+typedef struct packed {
   logic [INSTR_ADDR_WIDTH-1:0] addr;
+  logic [1:0]                  memtype;
+  logic [2:0]                  prot;
 } obi_inst_req_t;
 
 typedef struct packed {
@@ -877,6 +862,8 @@ typedef struct packed {
   logic                           we;
   logic [(DATA_DATA_WIDTH/8)-1:0] be;
   logic [DATA_DATA_WIDTH-1:0]     wdata;
+  logic [1:0]                     memtype;
+  logic [2:0]                     prot;
 } obi_data_req_t;
 
 typedef struct packed {
@@ -898,14 +885,107 @@ parameter inst_resp_t INST_RESP_RESET_VAL = '{
   mpu_status  : MPU_OK
 }; 
 
+// Reset value for the obi_inst_req_t type
+parameter obi_inst_req_t OBI_INST_REQ_RESET_VAL = '{
+  addr    : 'h0,
+  memtype : 'h0,
+  prot    : {PRIV_LVL_M, 1'b0}
+};
+  
+// Data transfer bundeled with MPU status
+typedef struct packed {
+  obi_data_resp_t             bus_resp;
+  mpu_status_e                mpu_status;
+} data_resp_t;
+  
 // IF/ID pipeline
 typedef struct packed {
   logic        instr_valid;
   inst_resp_t  instr;
   logic [31:0] pc;
   logic        is_compressed;
+  logic [15:0] compressed_instr;
   logic        illegal_c_insn;
 } if_id_pipe_t;
+
+// ID/EX pipeline
+typedef struct packed {
+
+  // ALU Control
+  logic         alu_en;
+  alu_opcode_e  alu_operator;
+  logic [31:0]  alu_operand_a;
+  logic [31:0]  alu_operand_b;
+  logic [31:0]  operand_c; // Gated with alu_en but not used by ALU
+
+  // Multiplier control
+  logic         mult_en;
+  mul_opcode_e  mult_operator;
+  logic [31:0]  mult_operand_a;
+  logic [31:0]  mult_operand_b;
+  logic [ 1:0]  mult_signed_mode;
+
+  // Divider control
+  logic         div_en;
+  div_opcode_e  div_operator;
+  
+  // Register write control
+  logic         rf_we;
+  rf_addr_t     rf_waddr;
+
+  logic prepost_useincr;
+
+  // CSR control
+  logic         csr_access;
+  logic         csr_en;
+
+  csr_opcode_e  csr_op;
+
+  // Data Memory Control:  From ID stage (id-ex pipe) <--> load store unit
+  logic         data_req;
+  logic         data_we;
+  logic [1:0]   data_type;
+  logic         data_sign_ext;
+  logic [1:0]   data_reg_offset;
+  logic         data_misaligned;
+  logic [5:0]   data_atop;
+
+  // Branch target
+  logic         branch_in_ex;
+
+  // Signals for exception handling etc passed on for evaluation in WB stage
+  logic [31:0]  pc;
+  inst_resp_t   instr;            // Contains instruction word (may be compressed),bus error status and MPU status
+  logic         illegal_insn;
+  logic         ebrk_insn;
+  logic         wfi_insn;
+  logic         ecall_insn;
+  logic         fencei_insn;
+  logic         mret_insn; // TODO:OK: May be removed if mret is handled by the pipeline and not the controller
+  logic         dret_insn; // TODO:OK: May be removed if dret is handled by the pipeline and not the controller
+
+} id_ex_pipe_t;
+
+// EX/WB pipeline
+typedef struct packed {
+  logic         rf_we;
+  rf_addr_t     rf_waddr;
+  logic [31:0]  rf_wdata;
+  logic         data_req;
+
+  // Signals for exception handling etc
+  logic [31:0]  pc;
+  inst_resp_t   instr;            // Contains instruction word (may be compressed), bus error status and MPU status
+  logic         illegal_insn;
+  logic         ebrk_insn;
+  logic         wfi_insn;
+  logic         ecall_insn;
+  logic         fencei_insn;
+  logic         mret_insn; // TODO:OK: May be removed if mret is handled by the pipeline and not the controller
+  logic         dret_insn; // TODO:OK: May be removed if dret is handled by the pipeline and not the controller
+  mpu_status_e  data_mpu_status; // MPU timing on gnt, ready in EX
+
+} ex_wb_pipe_t;
 
   
   
@@ -922,8 +1002,8 @@ typedef struct packed {
   typedef enum logic {TRANSPARENT, REGISTERED} obi_if_state_e;
 
   
-  
-  
+  // Enum used for configuration of B extension
+  typedef enum logic [1:0] {NONE, ZBA_ZBB_ZBS, ZBA_ZBB_ZBC_ZBS} b_ext_e;
 
 
   

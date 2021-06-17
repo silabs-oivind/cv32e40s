@@ -24,7 +24,7 @@
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 
-module cv32e40x_controller_sva
+module cv32e40x_controller_fsm_sva
   import uvm_pkg::*;
   import cv32e40x_pkg::*;
   (
@@ -42,12 +42,13 @@ module cv32e40x_controller_sva
    input       ctrl_state_e ctrl_fsm_ns
    );
 
+  // TODO: This assertion has been removed for a simplification for RVFI and has not been verified
   // make sure that taken branches do not happen back-to-back, as this is not
   // possible without branch prediction in the IF stage
-  a_no_back_to_back_branching :
-    assert property (@(posedge clk)
-                     (branch_taken_ex_i) |=> (~branch_taken_ex_i) )
-      else `uvm_error("controller", "Two branches back-to-back are taken")
+  //a_no_back_to_back_branching :
+  //  assert property (@(posedge clk)
+  //                   (branch_taken_ex_i) |=> (~branch_taken_ex_i) )
+  //    else `uvm_error("controller", "Two branches back-to-back are taken")
 
   // Ensure DBG_TAKEN_IF can only be enterred if in single step mode or woken
   // up from sleep by debug_req_i
@@ -86,5 +87,5 @@ module cv32e40x_controller_sva
                      (ctrl_fsm_cs == DBG_FLUSH) && (ctrl_fsm_ns == DBG_TAKEN_IF) |-> debug_single_step_i)
       else `uvm_error("controller", "Assertion a_dbg_flush_to_taken_if failed")
 
-endmodule // cv32e40x_controller_sva
+endmodule // cv32e40x_controller_fsm_sva
 

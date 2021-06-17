@@ -18,6 +18,7 @@
 //                 Michael Gautschi - gautschi@iis.ee.ethz.ch                 //
 //                 Davide Schiavone - pschiavo@iis.ee.ethz.ch                 //
 //                 Halfdan Bechmann - halfdan.bechmann@silabs.com             //
+//                 Øystein Knauserud - oystein.knauserud@silabs.com           //
 //                                                                            //
 // Design Name:    Top level module                                           //
 // Project Name:   RI5CY                                                      //
@@ -31,8 +32,8 @@ module cv32e40x_core import cv32e40x_pkg::*;
 #(
   parameter NUM_MHPMCOUNTERS             =  1,
   parameter LIB                          =  0,
-  parameter int unsigned PMA_NUM_REGIONS =  1,
-  parameter pma_region_t PMA_CFG [PMA_NUM_REGIONS-1:0] = '{PMA_R_DEFAULT}
+  parameter int unsigned PMA_NUM_REGIONS =  0,
+  parameter pma_region_t PMA_CFG[(PMA_NUM_REGIONS ? (PMA_NUM_REGIONS-1) : 0):0] = '{default:PMA_R_DEFAULT}
 )
 (
   // Clock and Reset
@@ -47,12 +48,15 @@ module cv32e40x_core import cv32e40x_pkg::*;
   input  logic [31:0] dm_halt_addr_i,
   input  logic [31:0] hart_id_i,
   input  logic [31:0] dm_exception_addr_i,
+  input  logic [31:0] nmi_addr_i,               // TODO use
 
   // Instruction memory interface
   output logic        instr_req_o,
   input  logic        instr_gnt_i,
   input  logic        instr_rvalid_i,
   output logic [31:0] instr_addr_o,
+  output logic [1:0]  instr_memtype_o,
+  output logic [2:0]  instr_prot_o,
   input  logic [31:0] instr_rdata_i,
   input  logic        instr_err_i,
 
@@ -63,17 +67,22 @@ module cv32e40x_core import cv32e40x_pkg::*;
   output logic        data_we_o,
   output logic [3:0]  data_be_o,
   output logic [31:0] data_addr_o,
+  output logic [1:0]  data_memtype_o,
+  output logic [2:0]  data_prot_o,
   output logic [31:0] data_wdata_o,
   input  logic [31:0] data_rdata_i,
   input  logic        data_err_i,
   output logic [5:0]  data_atop_o,
   input  logic        data_exokay_i,
 
-  
   // Interrupt inputs
   input  logic [31:0] irq_i,                    // CLINT interrupts + CLINT extension interrupts
   output logic        irq_ack_o,
   output logic [4:0]  irq_id_o,
+
+  // Fencei flush handshake
+  output logic        fencei_flush_req_o,
+  input logic         fencei_flush_ack_i,       // TODO use
 
   // Debug Interface
   input  logic        debug_req_i,
@@ -89,15 +98,15 @@ module cv32e40x_core import cv32e40x_pkg::*;
   // Unused parameters and signals (left in code for future design extensions)
   localparam A_EXTENSION         =  0;
   localparam N_PMP_ENTRIES       = 16;
-  localparam USE_PMP             =  0;          // if PULP_SECURE is 1, you can still not use the PMP
+  localparam USE_PMP             =  0;
+  localparam b_ext_e B_EXT       = NONE;
 
   logic              clear_instr_valid;
   logic              pc_set;
 
   pc_mux_e           pc_mux_id;         // Mux selector for next PC
   exc_pc_mux_e       exc_pc_mux_id; // Mux selector for exception PC
-  logic [4:0]        m_exc_vec_pc_mux_id; // Mux selector for vectored IRQ PC
-  logic [4:0]        exc_cause;
+  logic [4:0]        m_exc_vec_pc_mux; // Mux selector for vectored IRQ PC
 
   logic [31:0]       pc_if;             // Program counter in IF stage
 
@@ -106,8 +115,9 @@ module cv32e40x_core import cv32e40x_pkg::*;
 
   // Jump and branch target and decision (EX->IF)
   logic [31:0] jump_target_id;
-  logic [31:0] jump_target_ex;
+  logic [31:0] branch_target_ex;
   logic        branch_decision;
+  logic        branch_taken_ex; // ID->controller
 
   logic        ctrl_busy;
   logic        if_busy;
@@ -122,29 +132,36 @@ module cv32e40x_core import cv32e40x_pkg::*;
   // IF/ID pipeline
   if_id_pipe_t if_id_pipe;
   
-  // Register Write Control
-  rf_addr_t    regfile_waddr_fw_wb_o;        // From WB to ID
-  logic        regfile_we_wb;
-  logic [31:0] regfile_wdata;
-
   // Register File Write Back
   logic        rf_we_wb;
   rf_addr_t    rf_waddr_wb;
   logic [31:0] rf_wdata_wb;
 
+  // Forwarding RF from EX
   logic        rf_we_ex;
   rf_addr_t    rf_waddr_ex;
   logic [31:0] rf_wdata_ex;
+
+  // Register file signals from ID/decoder to controller
+  logic [REGFILE_NUM_READ_PORTS-1:0] rf_re;
+  rf_addr_t    rf_raddr[REGFILE_NUM_READ_PORTS];
+  rf_addr_t    rf_waddr;
+
+  // Register file read data
+  rf_data_t    regfile_rdata[REGFILE_NUM_READ_PORTS];
+
+  // Register file write interface
+  rf_addr_t    regfile_waddr[REGFILE_NUM_WRITE_PORTS];
+  rf_data_t    regfile_wdata[REGFILE_NUM_WRITE_PORTS];
+  logic        regfile_we   [REGFILE_NUM_WRITE_PORTS];
+
+  logic regfile_alu_we_dec;
 
   // CSR control
   logic [23:0] mtvec_addr;
   logic [1:0]  mtvec_mode;
 
-  csr_opcode_e csr_op;
-  csr_num_e    csr_addr;
-  csr_num_e    csr_addr_int;
   logic [31:0] csr_rdata;
-  logic [31:0] csr_wdata;
   PrivLvl_t    current_priv_lvl;
 
   // Load/store unit
@@ -155,6 +172,11 @@ module cv32e40x_core import cv32e40x_pkg::*;
 
   // stall control
   logic        halt_if;
+  logic        halt_id;
+  logic        misaligned_stall;
+  logic        jr_stall;
+  logic        load_stall;
+
   logic        id_ready;
   logic        ex_ready;
 
@@ -187,7 +209,7 @@ module cv32e40x_core import cv32e40x_pkg::*;
   logic        debug_csr_save;
   logic        debug_single_step;
   logic        debug_ebreakm;
-  logic        trigger_match;
+  logic        debug_trigger_match;
 
   // Performance Counters
   logic        mhpmevent_minstret;
@@ -206,34 +228,73 @@ module cv32e40x_core import cv32e40x_pkg::*;
   // Wake signal
   logic        wake_from_sleep;
 
+  // WB is writing back an ALU result
+  logic        data_req_wb;
+
+  // Blocking update of data address in WB (in case of bus errors)
+  logic        block_data_addr;
+
+  // data bus error in WB
+  logic        data_err_wb;
+  logic [31:0] data_addr_wb;
+
+  // Controller <-> decoder 
+  logic       deassert_we;
+  logic       illegal_insn;
+  logic       ecall_insn;
+  logic       mret_insn;
+  logic       dret_insn;
+  logic       wfi_insn;
+  logic       ebrk_insn;
+  logic       fencei_insn;
+  logic       csr_status;
+  logic [1:0] ctrl_transfer_insn;
+  logic [1:0] ctrl_transfer_insn_raw;
+  logic       debug_wfi_no_sleep;
+
+  // Forward mux selectors controller -> id
+  op_fw_mux_e  operand_a_fw_mux_sel;
+  op_fw_mux_e  operand_b_fw_mux_sel;
+  jalr_fw_mux_e  jalr_fw_mux_sel;
+
+  // irq signals
+  logic        irq_req_ctrl;
+  logic [4:0]  irq_id_ctrl;
+  logic        irq_wu_ctrl;
+
+  // kill signals
+  logic        kill_if;
+  
+
   // Internal OBI interfaces
   if_c_obi #(.REQ_TYPE(obi_inst_req_t), .RESP_TYPE(obi_inst_resp_t))  m_c_obi_instr_if();
   if_c_obi #(.REQ_TYPE(obi_data_req_t), .RESP_TYPE(obi_data_resp_t))  m_c_obi_data_if();
 
-
-  // Mux selector for vectored IRQ PC
-  assign m_exc_vec_pc_mux_id = (mtvec_mode == 2'b0) ? 5'h0 : exc_cause;
-
-
   // Connect toplevel OBI signals to internal interfaces
-  assign instr_req_o                         = m_c_obi_instr_if.req;
+  assign instr_req_o                         = m_c_obi_instr_if.s_req.req;
   assign instr_addr_o                        = m_c_obi_instr_if.req_payload.addr;
-  assign m_c_obi_instr_if.gnt                = instr_gnt_i;
-  assign m_c_obi_instr_if.rvalid             = instr_rvalid_i;
+  assign instr_memtype_o                     = m_c_obi_instr_if.req_payload.memtype;
+  assign instr_prot_o                        = m_c_obi_instr_if.req_payload.prot;
+  assign m_c_obi_instr_if.s_gnt.gnt          = instr_gnt_i;
+  assign m_c_obi_instr_if.s_rvalid.rvalid    = instr_rvalid_i;
   assign m_c_obi_instr_if.resp_payload.rdata = instr_rdata_i;
   assign m_c_obi_instr_if.resp_payload.err   = instr_err_i;
   
-  assign data_req_o                          = m_c_obi_data_if.req;
+  assign data_req_o                          = m_c_obi_data_if.s_req.req;
   assign data_we_o                           = m_c_obi_data_if.req_payload.we;
   assign data_be_o                           = m_c_obi_data_if.req_payload.be;
   assign data_addr_o                         = m_c_obi_data_if.req_payload.addr;
+  assign data_memtype_o                      = m_c_obi_data_if.req_payload.memtype;
+  assign data_prot_o                         = m_c_obi_data_if.req_payload.prot;
   assign data_wdata_o                        = m_c_obi_data_if.req_payload.wdata;
   assign data_atop_o                         = m_c_obi_data_if.req_payload.atop;
-  assign m_c_obi_data_if.gnt                 = data_gnt_i;
-  assign m_c_obi_data_if.rvalid              = data_rvalid_i;
+  assign m_c_obi_data_if.s_gnt.gnt           = data_gnt_i;
+  assign m_c_obi_data_if.s_rvalid.rvalid     = data_rvalid_i;
   assign m_c_obi_data_if.resp_payload.rdata  = data_rdata_i;
   assign m_c_obi_data_if.resp_payload.err    = data_err_i;
   assign m_c_obi_data_if.resp_payload.exokay = data_exokay_i;
+
+  assign fencei_flush_req_o = 1'b0; // TODO connect to controller when handshake is implemented
 
   //////////////////////////////////////////////////////////////////////////////////////////////
   //   ____ _            _      __  __                                                   _    //
@@ -283,7 +344,8 @@ module cv32e40x_core import cv32e40x_pkg::*;
   //                                              //
   //////////////////////////////////////////////////
   cv32e40x_if_stage
-    #(.PMA_NUM_REGIONS(PMA_NUM_REGIONS),
+    #(.A_EXTENSION(A_EXTENSION),
+      .PMA_NUM_REGIONS(PMA_NUM_REGIONS),
       .PMA_CFG(PMA_CFG))
   if_stage_i
   (
@@ -302,6 +364,8 @@ module cv32e40x_core import cv32e40x_pkg::*;
 
     // instruction request control
     .req_i               ( instr_req_int     ),
+
+    .kill_if_i           ( kill_if           ),
 
     // instruction cache interface
     .m_c_obi_instr_if    ( m_c_obi_instr_if   ),
@@ -322,13 +386,13 @@ module cv32e40x_core import cv32e40x_pkg::*;
 
     .pc_if_o             ( pc_if             ),
 
-    .m_exc_vec_pc_mux_i  ( m_exc_vec_pc_mux_id ),
+    .m_exc_vec_pc_mux_i  ( m_exc_vec_pc_mux  ),
 
     .csr_mtvec_init_o    ( csr_mtvec_init    ),
 
     // Jump targets
     .jump_target_id_i    ( jump_target_id    ),
-    .jump_target_ex_i    ( jump_target_ex    ),
+    .branch_target_ex_i  ( branch_target_ex  ),
 
     // pipeline stalls
     .halt_if_i           ( halt_if           ),
@@ -350,7 +414,8 @@ module cv32e40x_core import cv32e40x_pkg::*;
   cv32e40x_id_stage
   #(
     .USE_PMP                      ( USE_PMP                ),
-    .A_EXTENSION                  ( A_EXTENSION            )
+    .A_EXTENSION                  ( A_EXTENSION            ),
+    .B_EXT                        ( B_EXT                  )
   )
   id_stage_i
   (
@@ -360,27 +425,16 @@ module cv32e40x_core import cv32e40x_pkg::*;
 
     .scan_cg_en_i                 ( scan_cg_en_i         ),
 
+    .deassert_we_i                ( deassert_we          ),
     // Processor Enable
-    .fetch_enable_i               ( fetch_enable         ),     // Delayed version so that clock can remain gated until fetch enabled
-    .ctrl_busy_o                  ( ctrl_busy            ),
-    .is_decoding_o                ( is_decoding          ),
-
-    // Interface to instruction memory
-    .instr_req_o                  ( instr_req_int        ),
+    .is_decoding_i                ( is_decoding          ),
 
     // Jumps and branches
     .branch_decision_i            ( branch_decision      ),
-    .jump_target_o                ( jump_target_id       ),
+    .jmp_target_o                 ( jump_target_id       ),
 
     // IF and ID control signals
     .clear_instr_valid_o          ( clear_instr_valid    ),
-    .pc_set_o                     ( pc_set               ),
-    .pc_mux_o                     ( pc_mux_id            ),
-    .exc_pc_mux_o                 ( exc_pc_mux_id        ),
-    .exc_cause_o                  ( exc_cause            ),
-
-    // Stalls
-    .halt_if_o                    ( halt_if              ),
 
     .id_ready_o                   ( id_ready             ),
     .ex_ready_i                   ( ex_ready             ),
@@ -397,47 +451,16 @@ module cv32e40x_core import cv32e40x_pkg::*;
 
     // CSR ID/EX
     .current_priv_lvl_i           ( current_priv_lvl     ),
-    .csr_cause_o                  ( csr_cause            ),
-    .csr_save_if_o                ( csr_save_if          ), // control signal to save pc
-    .csr_save_id_o                ( csr_save_id          ), // control signal to save pc
-    .csr_save_ex_o                ( csr_save_ex          ), // control signal to save pc
-    .csr_restore_mret_id_o        ( csr_restore_mret_id  ), // control signal to restore pc
-    .csr_restore_dret_id_o        ( csr_restore_dret_id  ), // control signal to restore pc
-    .csr_save_cause_o             ( csr_save_cause       ),
 
-    // Load/store unit
-    .lsu_misaligned_i             ( lsu_misaligned       ),
-
-    // Interrupt Signals
-    .irq_i                        ( irq_i                ),
-    .mie_bypass_i                 ( mie_bypass           ),
-    .mip_o                        ( mip                  ),
-    .m_irq_enable_i               ( m_irq_enable         ),
-    .irq_ack_o                    ( irq_ack_o            ),
-    .irq_id_o                     ( irq_id_o             ),
-
-    // Debug Signal
-    .debug_mode_o                 ( debug_mode           ),
-    .debug_cause_o                ( debug_cause          ),
-    .debug_csr_save_o             ( debug_csr_save       ),
-    .debug_req_i                  ( debug_req_i          ),
-    .debug_havereset_o            ( debug_havereset_o    ),
-    .debug_running_o              ( debug_running_o      ),
-    .debug_halted_o               ( debug_halted_o       ),
-    .debug_single_step_i          ( debug_single_step    ),
-    .debug_ebreakm_i              ( debug_ebreakm        ),
-    .trigger_match_i              ( trigger_match        ),
-
-    // Wakeup Signal
-    .wake_from_sleep_o            ( wake_from_sleep      ),
+    // Debug Signalf
+    .debug_mode_i                 ( debug_mode           ),
 
     // Register file write back and forwards
     .rf_we_ex_i                   ( rf_we_ex             ),
     .rf_waddr_ex_i                ( rf_waddr_ex          ),
     .rf_wdata_ex_i                ( rf_wdata_ex          ),
-    .rf_we_wb_i                   ( rf_we_wb             ),
-    .rf_waddr_wb_i                ( rf_waddr_wb          ),
     .rf_wdata_wb_i                ( rf_wdata_wb          ),
+    .rf_wdata_wb_alu_i            ( ex_wb_pipe.rf_wdata  ),
 
     // Performance Counters
     .mhpmevent_minstret_o         ( mhpmevent_minstret   ),
@@ -451,7 +474,41 @@ module cv32e40x_core import cv32e40x_pkg::*;
     .mhpmevent_imiss_o            ( mhpmevent_imiss      ),
     .mhpmevent_ld_stall_o         ( mhpmevent_ld_stall   ),
 
-    .perf_imiss_i                 ( perf_imiss           )
+    .perf_imiss_i                 ( perf_imiss           ),
+
+    .data_req_wb_i                ( data_req_wb          ),
+
+    .illegal_insn_o               ( illegal_insn         ),
+    .ebrk_insn_o                  ( ebrk_insn            ),
+    .mret_insn_o                  ( mret_insn            ),
+    .dret_insn_o                  ( dret_insn            ),
+    .ecall_insn_o                 ( ecall_insn           ),
+    .wfi_insn_o                   ( wfi_insn             ),
+    .fencei_insn_o                ( fencei_insn          ),
+    .csr_status_o                 ( csr_status           ),
+
+    .branch_taken_ex_o            ( branch_taken_ex      ),
+
+    .ctrl_transfer_insn_o         ( ctrl_transfer_insn   ),
+    .ctrl_transfer_insn_raw_o     ( ctrl_transfer_insn_raw ),
+    .debug_wfi_no_sleep_i         ( debug_wfi_no_sleep   ),
+
+    .rf_re_o                      ( rf_re                ),
+    .rf_raddr_o                   ( rf_raddr             ),
+    .rf_waddr_o                   ( rf_waddr             ),
+
+    .regfile_alu_we_dec_o         ( regfile_alu_we_dec   ),
+
+    .operand_a_fw_mux_sel_i       ( operand_a_fw_mux_sel ),
+    .operand_b_fw_mux_sel_i       ( operand_b_fw_mux_sel ),
+    .jalr_fw_mux_sel_i            ( jalr_fw_mux_sel      ),
+
+    .halt_id_i                    ( halt_id              ),
+    .misaligned_stall_i           ( misaligned_stall     ),
+    .jr_stall_i                   ( jr_stall             ),
+    .load_stall_i                 ( load_stall           ),
+
+    .regfile_rdata_i              ( regfile_rdata        )
   );
 
 
@@ -480,7 +537,7 @@ module cv32e40x_core import cv32e40x_pkg::*;
 
     // To IF: Branch decision
     .branch_decision_o          ( branch_decision              ),
-    .jump_target_o              ( jump_target_ex               ),
+    .branch_target_o            ( branch_target_ex             ),
 
     // Register file forwarding signals (to ID)
     .rf_we_ex_o                 ( rf_we_ex                     ),
@@ -506,7 +563,11 @@ module cv32e40x_core import cv32e40x_pkg::*;
   //                                                                                    //
   ////////////////////////////////////////////////////////////////////////////////////////
 
-  cv32e40x_load_store_unit load_store_unit_i
+  cv32e40x_load_store_unit
+    #(.A_EXTENSION(A_EXTENSION),
+      .PMA_NUM_REGIONS(PMA_NUM_REGIONS),
+      .PMA_CFG(PMA_CFG))
+  load_store_unit_i
   (
     .clk                   ( clk                ),
     .rst_n                 ( rst_ni             ),
@@ -515,6 +576,11 @@ module cv32e40x_core import cv32e40x_pkg::*;
     .m_c_obi_data_if       ( m_c_obi_data_if    ),
     // ID/EX pipeline
     .id_ex_pipe_i          ( id_ex_pipe         ),
+
+    .data_addr_wb_o        ( data_addr_wb       ),
+    .data_err_wb_o         ( data_err_wb        ),
+
+    .block_data_addr_i     ( block_data_addr    ),
    
     .lsu_rdata_o           ( lsu_rdata          ),
     .lsu_misaligned_o      ( lsu_misaligned     ),
@@ -537,16 +603,17 @@ module cv32e40x_core import cv32e40x_pkg::*;
     .ex_wb_pipe_i               ( ex_wb_pipe                   ),
 
     .lsu_rdata_i                ( lsu_rdata                    ),
+    .lsu_ready_wb_i             ( lsu_ready_wb                 ),
 
     // Write back to register file
     .rf_we_wb_o                 ( rf_we_wb                     ),
     .rf_waddr_wb_o              ( rf_waddr_wb                  ),
-    .rf_wdata_wb_o              ( rf_wdata_wb                  )
+    .rf_wdata_wb_o              ( rf_wdata_wb                  ),
+  
+    .wb_valid_o                 ( wb_valid                     ),
+
+    .data_req_wb_o              ( data_req_wb                  )
   );
-
-  // Tracer signal
-  assign wb_valid = lsu_ready_wb;
-
 
   //////////////////////////////////////
   //        ____ ____  ____           //
@@ -577,10 +644,11 @@ module cv32e40x_core import cv32e40x_pkg::*;
     // mtvec address
     .mtvec_addr_i               ( mtvec_addr_i[31:0]     ),
     .csr_mtvec_init_i           ( csr_mtvec_init         ),
+
+    // ID/EX pipeline 
+    .id_ex_pipe_i               ( id_ex_pipe             ),
+
     // Interface to CSRs (SRAM like)
-    .csr_addr_i                 ( csr_addr               ),
-    .csr_wdata_i                ( csr_wdata              ),
-    .csr_op_i                   ( csr_op                 ),
     .csr_rdata_o                ( csr_rdata              ),
 
     // Interrupt related control signals
@@ -593,16 +661,15 @@ module cv32e40x_core import cv32e40x_pkg::*;
     .debug_mode_i               ( debug_mode             ),
     .debug_cause_i              ( debug_cause            ),
     .debug_csr_save_i           ( debug_csr_save         ),
-    .dpc_o                      ( dpc                   ),
+    .dpc_o                      ( dpc                    ),
     .debug_single_step_o        ( debug_single_step      ),
     .debug_ebreakm_o            ( debug_ebreakm          ),
-    .trigger_match_o            ( trigger_match          ),
+    .debug_trigger_match_o      ( debug_trigger_match    ),
 
     .priv_lvl_o                 ( current_priv_lvl       ),
 
     .pc_if_i                    ( pc_if                  ),
     .pc_id_i                    ( if_id_pipe.pc          ),
-    .pc_ex_i                    ( id_ex_pipe.pc          ),
 
     .csr_save_if_i              ( csr_save_if            ),
     .csr_save_id_i              ( csr_save_id            ),
@@ -626,11 +693,192 @@ module cv32e40x_core import cv32e40x_pkg::*;
     .mhpmevent_ld_stall_i       ( mhpmevent_ld_stall     )
   );
 
-  //  CSR access
-  assign csr_addr     =  csr_addr_int;
-  assign csr_wdata    =  id_ex_pipe.alu_operand_a;
-  assign csr_op       =  id_ex_pipe.csr_op;
+  ////////////////////////////////////////////////////////////////////
+  //    ____ ___  _   _ _____ ____   ___  _     _     _____ ____    //
+  //   / ___/ _ \| \ | |_   _|  _ \ / _ \| |   | |   | ____|  _ \   //
+  //  | |  | | | |  \| | | | | |_) | | | | |   | |   |  _| | |_) |  //
+  //  | |__| |_| | |\  | | | |  _ <| |_| | |___| |___| |___|  _ <   //
+  //   \____\___/|_| \_| |_| |_| \_\\___/|_____|_____|_____|_| \_\  //
+  //                                                                //
+  ////////////////////////////////////////////////////////////////////
 
-  assign csr_addr_int = csr_num_e'(id_ex_pipe.csr_access ? id_ex_pipe.alu_operand_b[11:0] : '0);
+  cv32e40x_controller
+  controller_i
+  (
+    .clk                            ( clk                    ),         // Gated clock
+    .clk_ungated_i                  ( clk_i                  ),         // Ungated clock
+    .rst_n                          ( rst_ni                 ),
+
+    .fetch_enable_i                 ( fetch_enable           ),
+    .ctrl_busy_o                    ( ctrl_busy              ),
+    .is_decoding_o                  ( is_decoding            ),
+
+    // decoder related signals
+    .deassert_we_o                  ( deassert_we            ),
+
+    .illegal_insn_i                 ( illegal_insn           ),
+    .ecall_insn_i                   ( ecall_insn             ),
+    .mret_insn_i                    ( mret_insn              ),
+    .dret_insn_i                    ( dret_insn              ),
+    .wfi_insn_i                     ( wfi_insn               ),
+    .ebrk_insn_i                    ( ebrk_insn              ),
+    .fencei_insn_i                  ( fencei_insn            ),
+
+    .csr_status_i                   ( csr_status             ),
+
+    // from IF/ID pipeline
+    .if_id_pipe_i                   ( if_id_pipe             ),
+    // from prefetcher
+    .instr_req_o                    ( instr_req_int          ),
+                                                                 
+    // to prefetcher                                             
+    .pc_set_o                       ( pc_set                 ),
+    .pc_mux_o                       ( pc_mux_id              ),
+    .exc_pc_mux_o                   ( exc_pc_mux_id          ),
+    .m_exc_vec_pc_mux_o             ( m_exc_vec_pc_mux       ),
+    
+    // LSU
+    .data_req_ex_i                  ( id_ex_pipe.data_req    ),
+    .data_we_ex_i                   ( id_ex_pipe.data_we     ),
+    .data_misaligned_i              ( lsu_misaligned         ),
+
+    .data_err_wb_i                  ( data_err_wb            ),
+    .data_addr_wb_i                 ( data_addr_wb           ),
+    .block_data_addr_o              ( block_data_addr        ),
+
+    // jump/branch control
+    .branch_taken_ex_i              ( branch_taken_ex        ),
+    .ctrl_transfer_insn_i           ( ctrl_transfer_insn     ),
+    .ctrl_transfer_insn_raw_i       ( ctrl_transfer_insn_raw ),
+
+    // Interrupt signals
+    .irq_wu_ctrl_i                  ( irq_wu_ctrl            ),
+    .irq_req_ctrl_i                 ( irq_req_ctrl           ),
+    .irq_id_ctrl_i                  ( irq_id_ctrl            ),
+    .current_priv_lvl_i             ( current_priv_lvl       ),
+    .irq_ack_o                      ( irq_ack_o              ),
+    .irq_id_o                       ( irq_id_o               ),
+    
+    // From CSR registers
+    .mtvec_mode_i                   ( mtvec_mode             ),
+
+    // Debug Signal
+    .debug_mode_o                   ( debug_mode             ),
+    .debug_cause_o                  ( debug_cause            ),
+    .debug_csr_save_o               ( debug_csr_save         ),
+    .debug_req_i                    ( debug_req_i            ), 
+    .debug_single_step_i            ( debug_single_step      ),
+    .debug_ebreakm_i                ( debug_ebreakm          ),
+    .debug_trigger_match_i          ( debug_trigger_match    ),
+    .debug_wfi_no_sleep_o           ( debug_wfi_no_sleep     ),
+    .debug_havereset_o              ( debug_havereset_o      ),
+    .debug_running_o                ( debug_running_o        ),
+    .debug_halted_o                 ( debug_halted_o         ),
+
+    // Wakeup Signal
+    .wake_from_sleep_o              ( wake_from_sleep        ),
+
+    // CSR Controller Signals
+    .csr_save_cause_o               ( csr_save_cause         ),
+    .csr_cause_o                    ( csr_cause              ),
+    .csr_save_if_o                  ( csr_save_if            ),
+    .csr_save_id_o                  ( csr_save_id            ),
+    .csr_save_ex_o                  ( csr_save_ex            ),
+    .csr_restore_mret_id_o          ( csr_restore_mret_id    ),
+    .csr_restore_dret_id_o          ( csr_restore_dret_id    ),
+
+    // Register File read, write back and forwards
+    .rf_re_i                        ( rf_re                  ),       
+    .rf_raddr_i                     ( rf_raddr               ),
+    .rf_waddr_i                     ( rf_waddr               ),
+    .rf_we_ex_i                     ( rf_we_ex               ),
+    .rf_waddr_ex_i                  ( rf_waddr_ex            ),
+    .rf_we_wb_i                     ( rf_we_wb               ),
+    .rf_waddr_wb_i                  ( rf_waddr_wb            ),
+
+    // Write targets from ID
+    .regfile_alu_we_id_i            ( regfile_alu_we_dec     ),
+   
+    // Forwarding signals
+    .operand_a_fw_mux_sel_o         ( operand_a_fw_mux_sel   ),
+    .operand_b_fw_mux_sel_o         ( operand_b_fw_mux_sel   ),
+    .jalr_fw_mux_sel_o              ( jalr_fw_mux_sel        ),
+
+    // Stall signals
+    .halt_if_o                      ( halt_if                ),
+    .halt_id_o                      ( halt_id                ),
+
+    .kill_if_o                      ( kill_if                ),
+
+    .misaligned_stall_o             ( misaligned_stall       ),
+    .jr_stall_o                     ( jr_stall               ),
+    .load_stall_o                   ( load_stall             ),
+
+    .id_ready_i                     ( id_ready               ),
+    .ex_valid_i                     ( ex_valid               ),
+    .wb_ready_i                     ( lsu_ready_wb           ),
+    .data_req_wb_i                  ( data_req_wb            )
+  );
+
+////////////////////////////////////////////////////////////////////////
+//  _____      _       _____             _             _ _            //
+// |_   _|    | |     /  __ \           | |           | | |           //
+//   | | _ __ | |_    | /  \/ ___  _ __ | |_ _ __ ___ | | | ___ _ __  //
+//   | || '_ \| __|   | |    / _ \| '_ \| __| '__/ _ \| | |/ _ \ '__| //
+//  _| || | | | |_ _  | \__/\ (_) | | | | |_| | | (_) | | |  __/ |    //
+//  \___/_| |_|\__(_)  \____/\___/|_| |_|\__|_|  \___/|_|_|\___|_|    //
+//                                                                    //
+////////////////////////////////////////////////////////////////////////
+  
+  cv32e40x_int_controller
+  int_controller_i
+  (
+    .clk                  ( clk                ),
+    .rst_n                ( rst_ni             ),
+
+    // External interrupt lines
+    .irq_i                ( irq_i              ),
+
+    // To cv32e40x_controller
+    .irq_req_ctrl_o       ( irq_req_ctrl       ),
+    .irq_id_ctrl_o        ( irq_id_ctrl        ),
+    .irq_wu_ctrl_o        ( irq_wu_ctrl        ),
+
+    // To/from with cv32e40x_cs_registers
+    .mie_bypass_i         ( mie_bypass         ),
+    .mip_o                ( mip                ),
+    .m_ie_i               ( m_irq_enable       ),
+    .current_priv_lvl_i   ( current_priv_lvl   )
+  );
+
+    /////////////////////////////////////////////////////////
+  //  ____  _____ ____ ___ ____ _____ _____ ____  ____   //
+  // |  _ \| ____/ ___|_ _/ ___|_   _| ____|  _ \/ ___|  //
+  // | |_) |  _|| |  _ | |\___ \ | | |  _| | |_) \___ \  //
+  // |  _ <| |__| |_| || | ___) || | | |___|  _ < ___) | //
+  // |_| \_\_____\____|___|____/ |_| |_____|_| \_\____/  //
+  //                                                     //
+  /////////////////////////////////////////////////////////
+
+  // Connect register file write port(s) to regfile inputs
+  assign regfile_we[0]    = rf_we_wb;
+  assign regfile_waddr[0] = rf_waddr_wb;
+  assign regfile_wdata[0] = rf_wdata_wb;
+
+  cv32e40x_register_file_wrapper
+  register_file_wrapper_i
+  (
+    .clk                ( clk                ),
+    .rst_n              ( rst_ni             ),
+
+    // Read ports
+    .raddr_i            ( rf_raddr           ),
+    .rdata_o            ( regfile_rdata      ),
+
+    // Write ports
+    .waddr_i            ( regfile_waddr      ),
+    .wdata_i            ( regfile_wdata      ),
+    .we_i               ( regfile_we         )
+  );
 
 endmodule

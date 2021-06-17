@@ -22,7 +22,7 @@
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 
-`ifdef CV32E40P_TRACE_EXECUTION
+`ifdef CV32E40X_TRACE_EXECUTION
 
 `include "uvm_macros.svh"
 
@@ -43,6 +43,7 @@ module cv32e40x_tracer
 
   input  logic        compressed,
   input  logic        id_valid,
+  input  logic        multi_cycle_id_stall,
   input  logic        is_decoding,
   input  logic        is_illegal,
   input  logic        trigger_match,
@@ -97,6 +98,8 @@ module cv32e40x_tracer
   assign #0.01 clk_i_d = clk_i;
 
   event ovp_retire;
+  bit use_iss;
+
   integer      f;
   string       fn;
   integer      cycles;
@@ -162,6 +165,12 @@ module cv32e40x_tracer
     $fwrite(f, "Time\tCycle\tPC\tInstr\tDecoded instruction\tRegister and memory contents\n");
   end
 
+  initial begin
+    use_iss = 0;
+    if ($test$plusargs("USE_ISS"))
+      use_iss = 1;
+  end
+  
   always @(trace_ex or trace_wb or trace_wb_delay or trace_retire) begin
     pc_ex_stage = (trace_ex != null) ? trace_ex.pc : 'x;
     pc_wb_stage = (trace_wb != null) ? trace_wb.pc : 'x;
@@ -237,10 +246,9 @@ module cv32e40x_tracer
 
     trace_retire.printInstrTrace();
 
-    ->retire;
-    `ifdef ISS
-    @(ovp_retire);
-    `endif
+    ->retire;    
+    if (use_iss)
+      @(ovp_retire);    
     #0.1ns;
   end
 
@@ -388,7 +396,7 @@ module cv32e40x_tracer
     // ----------------------------------------------
 
     // New instruction created if is a legal decoded instruction
-    if (id_valid && is_decoding && !is_illegal) 
+    if ((id_valid && !multi_cycle_id_stall) && is_decoding && !is_illegal)
       trace_new = 1;
     // Create a new EBREAK instruuction (will bypass pipeline execution)
     else if (is_decoding && !trigger_match && ebrk_insn && (ebrk_force_debug_mode || debug_mode))
@@ -459,4 +467,4 @@ module cv32e40x_tracer
 endmodule : cv32e40x_tracer
 
 
-`endif // CV32E40P_TRACE_EXECUTION
+`endif // CV32E40X_TRACE_EXECUTION

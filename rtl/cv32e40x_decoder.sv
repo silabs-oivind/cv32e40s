@@ -28,6 +28,7 @@
 module cv32e40x_decoder import cv32e40x_pkg::*;
 #(
   parameter A_EXTENSION       = 0,
+  parameter b_ext_e B_EXT     = NONE,
   parameter USE_PMP           = 0,
   parameter DEBUG_TRIGGER_EN  = 1
 )
@@ -40,9 +41,6 @@ module cv32e40x_decoder import cv32e40x_pkg::*;
 
   output logic        mret_insn_o,             // return from exception instruction encountered (M)
   output logic        dret_insn_o,             // return from debug (M)
-
-  output logic        mret_dec_o,              // return from exception instruction encountered (M) without deassert
-  output logic        dret_dec_o,              // return from debug (M) without deassert
 
   output logic        ecall_insn_o,            // environment call (syscall) instruction encountered
   output logic        wfi_insn_o,              // pipeline flush is requested
@@ -67,6 +65,10 @@ module cv32e40x_decoder import cv32e40x_pkg::*;
   output logic        mult_en_o,               // Perform integer multiplication
   output logic [1:0]  mult_signed_mode_o,      // Multiplication in signed mode
   
+  // DIV related control signals
+  output div_opcode_e  div_operator_o,         // Division operation selection
+  output logic         div_en_o,               // Perform division
+
   // Register file related signals
   output logic        rf_we_o,                 // Write enable for register file
   output logic        rf_we_raw_o,             // Write enable for register file without deassert
@@ -101,17 +103,18 @@ module cv32e40x_decoder import cv32e40x_pkg::*;
   // write enable/request control
   logic       rf_we;
   logic       data_req;
-  logic       csr_illegal;
   logic [1:0] ctrl_transfer_insn;
 
   csr_opcode_e csr_op;
 
   logic       alu_en;
   logic       mult_en;
+  logic       div_en;
 
   decoder_ctrl_t decoder_i_ctrl;
   decoder_ctrl_t decoder_m_ctrl;
   decoder_ctrl_t decoder_a_ctrl;
+  decoder_ctrl_t decoder_b_ctrl;
   decoder_ctrl_t decoder_ctrl_mux_subdec;
   decoder_ctrl_t decoder_ctrl_mux;
 
@@ -140,6 +143,19 @@ module cv32e40x_decoder import cv32e40x_pkg::*;
     else begin: no_a_decoder
       assign decoder_a_ctrl = DECODER_CTRL_ILLEGAL_INSN;
     end
+
+    if (B_EXT != NONE) begin: b_decoder
+      // RV32B extension decoder
+      cv32e40x_b_decoder
+        #(.B_EXT(B_EXT))
+      b_decoder_i
+        (.instr_rdata_i(instr_rdata_i),
+         .decoder_ctrl_o(decoder_b_ctrl));
+    end
+    else begin: no_b_decoder
+      assign decoder_b_ctrl = DECODER_CTRL_ILLEGAL_INSN;
+    end
+    
   endgenerate
       
   // Mux control outputs from decoders
@@ -149,6 +165,7 @@ module cv32e40x_decoder import cv32e40x_pkg::*;
       !decoder_m_ctrl.illegal_insn : decoder_ctrl_mux_subdec = decoder_m_ctrl; // M decoder got a match
       !decoder_a_ctrl.illegal_insn : decoder_ctrl_mux_subdec = decoder_a_ctrl; // A decoder got a match
       !decoder_i_ctrl.illegal_insn : decoder_ctrl_mux_subdec = decoder_i_ctrl; // I decoder got a match
+      !decoder_b_ctrl.illegal_insn : decoder_ctrl_mux_subdec = decoder_b_ctrl; // B decoder got a match
       default                      : decoder_ctrl_mux_subdec = DECODER_CTRL_ILLEGAL_INSN; // No match from decoders, illegal instruction
     endcase
   end
@@ -172,15 +189,16 @@ module cv32e40x_decoder import cv32e40x_pkg::*;
   assign op_c_mux_sel_o                 = decoder_ctrl_mux.op_c_mux_sel;
   assign imm_a_mux_sel_o                = decoder_ctrl_mux.imm_a_mux_sel;                 
   assign imm_b_mux_sel_o                = decoder_ctrl_mux.imm_b_mux_sel;                 
-  assign mult_operator_o                = decoder_ctrl_mux.mult_operator;                 
-  assign mult_en                        = decoder_ctrl_mux.mult_en;                         
-  assign mult_signed_mode_o             = decoder_ctrl_mux.mult_signed_mode;              
+  assign mult_operator_o                = decoder_ctrl_mux.mult_operator;               
+  assign mult_en                        = decoder_ctrl_mux.mult_en;
+  assign mult_signed_mode_o             = decoder_ctrl_mux.mult_signed_mode;
+  assign div_en                         = decoder_ctrl_mux.div_en;
+  assign div_operator_o                 = decoder_ctrl_mux.div_operator;
   assign rf_re_o                        = decoder_ctrl_mux.rf_re;                         
   assign rf_we                          = decoder_ctrl_mux.rf_we;                           
   assign prepost_useincr_o              = decoder_ctrl_mux.prepost_useincr;               
   assign csr_en_o                       = decoder_ctrl_mux.csr_en;
-  assign csr_status_o                   = decoder_ctrl_mux.csr_status;                    
-  assign csr_illegal                    = decoder_ctrl_mux.csr_illegal;                     
+  assign csr_status_o                   = decoder_ctrl_mux.csr_status;
   assign csr_op                         = decoder_ctrl_mux.csr_op;                          
   assign mret_insn_o                    = decoder_ctrl_mux.mret_insn;                     
   assign dret_insn_o                    = decoder_ctrl_mux.dret_insn;                     
@@ -195,12 +213,11 @@ module cv32e40x_decoder import cv32e40x_pkg::*;
   assign ecall_insn_o                   = decoder_ctrl_mux.ecall_insn;                    
   assign wfi_insn_o                     = decoder_ctrl_mux.wfi_insn;                      
   assign fencei_insn_o                  = decoder_ctrl_mux.fencei_insn;                   
-  assign mret_dec_o                     = decoder_ctrl_mux.mret_dec;                      
-  assign dret_dec_o                     = decoder_ctrl_mux.dret_dec;                      
 
 
   assign alu_en_o             = deassert_we_i ? 1'b0        : alu_en;
   assign mult_en_o            = deassert_we_i ? 1'b0        : mult_en;
+  assign div_en_o             = deassert_we_i ? 1'b0        : div_en;
   assign rf_we_o              = deassert_we_i ? 1'b0        : rf_we;
   assign data_req_o           = deassert_we_i ? 1'b0        : data_req;
   assign csr_op_o             = deassert_we_i ? CSR_OP_READ : csr_op;

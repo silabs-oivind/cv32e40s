@@ -94,7 +94,7 @@ module cv32e40x_i_decoder import cv32e40x_pkg::*;
       OPCODE_BRANCH: begin // Branch
         decoder_ctrl_o.ctrl_transfer_target_mux_sel = JT_COND;
         decoder_ctrl_o.ctrl_transfer_insn           = BRANCH_COND;
-        decoder_ctrl_o.op_c_mux_sel                 = OP_C_JT;
+        decoder_ctrl_o.op_c_mux_sel                 = OP_C_BCH;
         decoder_ctrl_o.rf_re[0]                     = 1'b1;
         decoder_ctrl_o.rf_re[1]                     = 1'b1;
         
@@ -310,14 +310,12 @@ module cv32e40x_i_decoder import cv32e40x_pkg::*;
               12'h302:  // mret
               begin
                 decoder_ctrl_o.mret_insn = 1'b1;
-                decoder_ctrl_o.mret_dec  = 1'b1;
               end
 
               12'h7b2:  // dret
                 begin
                   if(debug_mode_i) begin
-                    decoder_ctrl_o.dret_insn    =  debug_mode_i;
-                    decoder_ctrl_o.dret_dec     =  1'b1;
+                    decoder_ctrl_o.dret_insn    =  1'b1;
                   end
                   else begin
                     decoder_ctrl_o = DECODER_CTRL_ILLEGAL_INSN;
@@ -371,7 +369,7 @@ module cv32e40x_i_decoder import cv32e40x_pkg::*;
             2'b01:   decoder_ctrl_o.csr_op = CSR_OP_WRITE;
             2'b10:   decoder_ctrl_o.csr_op = instr_rdata_i[19:15] == 5'b0 ? CSR_OP_READ : CSR_OP_SET;
             2'b11:   decoder_ctrl_o.csr_op = instr_rdata_i[19:15] == 5'b0 ? CSR_OP_READ : CSR_OP_CLEAR;
-            default: decoder_ctrl_o.csr_illegal = 1'b1;
+            default: decoder_ctrl_o = DECODER_CTRL_ILLEGAL_INSN;
           endcase
 
           
@@ -382,24 +380,26 @@ module cv32e40x_i_decoder import cv32e40x_pkg::*;
               CSR_MARCHID,
               CSR_MIMPID,
               CSR_MHARTID :
-                if(decoder_ctrl_o.csr_op != CSR_OP_READ) decoder_ctrl_o.csr_illegal = 1'b1;
+                if(decoder_ctrl_o.csr_op != CSR_OP_READ) begin
+                  decoder_ctrl_o = DECODER_CTRL_ILLEGAL_INSN;
+                end
 
             // These are valid CSR registers
             CSR_MSTATUS,
               CSR_MEPC,
               CSR_MTVEC,
-              CSR_MCAUSE :
+              CSR_MCAUSE : begin
                 // Not illegal, but treat as status CSR for side effect handling
                 decoder_ctrl_o.csr_status = 1'b1;
-
+              end
             // These are valid CSR registers
             CSR_MISA,
               CSR_MIE,
               CSR_MSCRATCH,
               CSR_MTVAL,
-              CSR_MIP :
+              CSR_MIP : begin
                 ; // do nothing, not illegal
-
+              end
             // Hardware Performance Monitor
             CSR_MCYCLE,
               CSR_MINSTRET,
@@ -429,9 +429,10 @@ module cv32e40x_i_decoder import cv32e40x_pkg::*;
               CSR_MHPMEVENT16, CSR_MHPMEVENT17, CSR_MHPMEVENT18, CSR_MHPMEVENT19,
               CSR_MHPMEVENT20, CSR_MHPMEVENT21, CSR_MHPMEVENT22, CSR_MHPMEVENT23,
               CSR_MHPMEVENT24, CSR_MHPMEVENT25, CSR_MHPMEVENT26, CSR_MHPMEVENT27,
-              CSR_MHPMEVENT28, CSR_MHPMEVENT29, CSR_MHPMEVENT30, CSR_MHPMEVENT31 :
+              CSR_MHPMEVENT28, CSR_MHPMEVENT29, CSR_MHPMEVENT30, CSR_MHPMEVENT31 : begin
                 // Not illegal, but treat as status CSR to get accurate counts
                 decoder_ctrl_o.csr_status = 1'b1;
+              end
 
             // Hardware Performance Monitor (unprivileged read-only mirror CSRs)
             // Removal of these is not SEC equivalent
@@ -457,7 +458,7 @@ module cv32e40x_i_decoder import cv32e40x_pkg::*;
               CSR_HPMCOUNTER28H, CSR_HPMCOUNTER29H, CSR_HPMCOUNTER30H, CSR_HPMCOUNTER31H :
                 // Read-only and readable from user mode only if the bit of mcounteren is set
                 if((decoder_ctrl_o.csr_op != CSR_OP_READ)) begin
-                  decoder_ctrl_o.csr_illegal = 1'b1;
+                  decoder_ctrl_o = DECODER_CTRL_ILLEGAL_INSN;
                 end else begin
                   decoder_ctrl_o.csr_status = 1'b1;
                 end
@@ -468,7 +469,7 @@ module cv32e40x_i_decoder import cv32e40x_pkg::*;
               CSR_DSCRATCH0,
               CSR_DSCRATCH1 :
                 if(!debug_mode_i) begin
-                  decoder_ctrl_o.csr_illegal = 1'b1;
+                  decoder_ctrl_o = DECODER_CTRL_ILLEGAL_INSN;
               end else begin
                 decoder_ctrl_o.csr_status = 1'b1;
               end
@@ -481,16 +482,13 @@ module cv32e40x_i_decoder import cv32e40x_pkg::*;
               CSR_TINFO,
               CSR_MCONTEXT,
               CSR_SCONTEXT :
-                if(DEBUG_TRIGGER_EN != 1)
-                  decoder_ctrl_o.csr_illegal = 1'b1;
+                if(DEBUG_TRIGGER_EN != 1) begin
+                  decoder_ctrl_o = DECODER_CTRL_ILLEGAL_INSN;
+                end
 
-            default : decoder_ctrl_o.csr_illegal = 1'b1;
+                  default : decoder_ctrl_o = DECODER_CTRL_ILLEGAL_INSN;
 
           endcase // case (instr_rdata_i[31:20])
-
-          if(decoder_ctrl_o.csr_illegal) begin
-            decoder_ctrl_o = DECODER_CTRL_ILLEGAL_INSN;
-          end
 
         end
 
