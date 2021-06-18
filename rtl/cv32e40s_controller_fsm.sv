@@ -29,7 +29,7 @@
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 
-module cv32e40s_controller_fsm import cv32e40s_pkg::*;
+module cv32e40x_controller_fsm import cv32e40x_pkg::*;
   (
     // Clocks and reset
     input  logic        clk,                        // Gated clock
@@ -944,4 +944,4 @@ module cv32e40s_controller_fsm import cv32e40s_pkg::*;
   assign debug_running_o = debug_fsm_cs[RUNNING_INDEX];
   assign debug_halted_o = debug_fsm_cs[HALTED_INDEX];
 
-endmodule //cv32e40s_controller_fsm
+endmodule //cv32e40x_controller_fsm

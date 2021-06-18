@@ -25,7 +25,7 @@
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-module cv32e40s_div import cv32e40s_pkg::*;
+module cv32e40x_div import cv32e40x_pkg::*;
 (
     // Clock and reset
     input logic                clk,
@@ -285,5 +285,5 @@ module cv32e40s_div import cv32e40s_pkg::*;
     end
   end
   
-endmodule : cv32e40s_div
+endmodule : cv32e40x_div
 

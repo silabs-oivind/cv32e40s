@@ -20,9 +20,9 @@
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 
-module cv32e40s_if_stage_sva
+module cv32e40x_if_stage_sva
   import uvm_pkg::*;
-  import cv32e40s_pkg::*;
+  import cv32e40x_pkg::*;
   (input  logic        clk,
    input  logic        rst_n,
    if_c_obi.monitor    m_c_obi_instr_if);
@@ -35,5 +35,5 @@ module cv32e40s_if_stage_sva
   a_instr_addr_word_aligned : assert property(p_instr_addr_word_aligned)
     else `uvm_error("if_stage", "Assertion a_instr_addr_word_aligned failed")
 
-endmodule // cv32e40s_if_stage
+endmodule // cv32e40x_if_stage
 

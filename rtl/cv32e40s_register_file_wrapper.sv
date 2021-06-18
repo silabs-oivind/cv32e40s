@@ -28,7 +28,7 @@
 // Description:    Wrapper for the register file                              //
 ////////////////////////////////////////////////////////////////////////////////
 
-module cv32e40s_register_file_wrapper import cv32e40s_pkg::*;
+module cv32e40x_register_file_wrapper import cv32e40x_pkg::*;
 (
         // Clock and Reset
         input  logic         clk,
@@ -44,7 +44,7 @@ module cv32e40s_register_file_wrapper import cv32e40s_pkg::*;
         input logic         we_i [REGFILE_NUM_WRITE_PORTS]
 );
     
-    cv32e40s_register_file
+    cv32e40x_register_file
     register_file_i
     (
       .clk                ( clk                ),

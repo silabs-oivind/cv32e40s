@@ -18,7 +18,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 
-module cv32e40s_prefetch_unit_sva
+module cv32e40x_prefetch_unit_sva
   import uvm_pkg::*;
   (
    input logic        clk,
@@ -48,5 +48,5 @@ module cv32e40s_prefetch_unit_sva
 
   
 
-endmodule // cv32e40s_prefetch_unit
+endmodule // cv32e40x_prefetch_unit
 

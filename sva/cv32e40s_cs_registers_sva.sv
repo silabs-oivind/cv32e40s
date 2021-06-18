@@ -22,9 +22,9 @@
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 
-module cv32e40s_cs_registers_sva
+module cv32e40x_cs_registers_sva
   import uvm_pkg::*;
-  import cv32e40s_pkg::*;
+  import cv32e40x_pkg::*;
   (
    input logic        clk,
    input logic        rst_n,
@@ -58,5 +58,5 @@ module cv32e40s_cs_registers_sva
                                   (!id_ex_pipe_i.csr_access) |-> (csr_rdata_o == csr_rdata_last))
 
     else `uvm_error("cs_registers", "csr_rdata_o not stable while csr_access is low")
-endmodule // cv32e40s_cs_registers_sva
+endmodule // cv32e40x_cs_registers_sva
 

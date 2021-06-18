@@ -23,9 +23,9 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 
-module cv32e40s_id_stage_sva
+module cv32e40x_id_stage_sva
   import uvm_pkg::*;
-  import cv32e40s_pkg::*;
+  import cv32e40x_pkg::*;
   (
    input logic        clk,
    input logic        rst_n,
@@ -125,5 +125,5 @@ module cv32e40s_id_stage_sva
 
       a_illegal_2 : assert property(p_illegal_2) else `uvm_error("id_stage", "Assertion p_illegal_2 failed")
 
-endmodule // cv32e40s_id_stage_sva
+endmodule // cv32e40x_id_stage_sva
 

@@ -24,7 +24,7 @@
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 
-module cv32e40s_register_file import cv32e40s_pkg::*;
+module cv32e40x_register_file import cv32e40x_pkg::*;
 (
     // Clock and Reset
     input  logic         clk,

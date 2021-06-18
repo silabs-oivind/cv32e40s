@@ -40,7 +40,7 @@
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 
-module cv32e40s_sleep_unit
+module cv32e40x_sleep_unit
 #(
   parameter LIB = 0
 )
@@ -67,7 +67,7 @@ module cv32e40s_sleep_unit
   input  logic        wake_from_sleep_i
 );
 
-  import cv32e40s_pkg::*;
+  import cv32e40x_pkg::*;
 
   logic              fetch_enable_q;            // Sticky version of fetch_enable_i
   logic              fetch_enable_d;
@@ -91,7 +91,7 @@ module cv32e40s_sleep_unit
    assign clock_en = fetch_enable_q && (wake_from_sleep_i || core_busy_q);
 
    // Sleep only in response to WFI which leads to clock disable; debug_wfi_no_sleep_o in
-   // cv32e40s_controller determines the scenarios for which WFI can(not) cause sleep.
+   // cv32e40x_controller determines the scenarios for which WFI can(not) cause sleep.
    assign core_sleep_o = fetch_enable_q && !clock_en;
 
   always_ff @(posedge clk_ungated_i, negedge rst_n)
@@ -109,7 +109,7 @@ module cv32e40s_sleep_unit
   assign fetch_enable_o = fetch_enable_q;
 
   // Main clock gate of CV32E40P
-  cv32e40s_clock_gate
+  cv32e40x_clock_gate
     #(.LIB (LIB))
   core_clock_gate_i
   (
@@ -119,4 +119,4 @@ module cv32e40s_sleep_unit
     .clk_o        ( clk_gated_o     )
   );
 
-endmodule // cv32e40s_sleep_unit
+endmodule // cv32e40x_sleep_unit
