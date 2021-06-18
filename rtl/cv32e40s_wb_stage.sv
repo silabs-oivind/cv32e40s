@@ -33,7 +33,7 @@
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 
-module cv32e40x_wb_stage import cv32e40x_pkg::*;
+module cv32e40s_wb_stage import cv32e40s_pkg::*;
 (
   // EX/WB pipeline 
   input  ex_wb_pipe_t   ex_wb_pipe_i,
@@ -74,4 +74,4 @@ assign instr_valid = ex_wb_pipe_i.instr_valid && !ctrl_fsm_i.kill_wb;
 
   assign wb_valid_o    = lsu_ready_wb_i && !ctrl_fsm_i.halt_wb && instr_valid;
   
-endmodule // cv32e40x_wb_stage
+endmodule // cv32e40s_wb_stage

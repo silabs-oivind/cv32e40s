@@ -29,7 +29,7 @@
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 
-module cv32e40x_controller import cv32e40x_pkg::*;
+module cv32e40s_controller import cv32e40s_pkg::*;
 (
   input  logic        clk,                        // Gated clock
   input  logic        clk_ungated_i,              // Ungated clock
@@ -121,7 +121,7 @@ module cv32e40x_controller import cv32e40x_pkg::*;
 
   
   // Main FSM and debug FSM
-  cv32e40x_controller_fsm
+  cv32e40s_controller_fsm
   controller_fsm_i (
     // Clocks and reset
     .clk                         ( clk           ),
@@ -181,7 +181,7 @@ module cv32e40x_controller import cv32e40x_pkg::*;
   
 
   // Hazard/bypass/stall control instance
-  cv32e40x_controller_bypass bypass_i (
+  cv32e40s_controller_bypass bypass_i (
     
       // From controller_fsm
       .is_decoding_i              ( ctrl_fsm_o.is_decoding   ),
@@ -233,4 +233,4 @@ module cv32e40x_controller import cv32e40x_pkg::*;
     
     );
 
-endmodule // cv32e40x_controller
+endmodule // cv32e40s_controller

@@ -29,7 +29,7 @@
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 
-module cv32e40x_id_stage import cv32e40x_pkg::*;
+module cv32e40s_id_stage import cv32e40s_pkg::*;
 #(
   parameter USE_PMP                 =  0,
   parameter A_EXTENSION             =  0,
@@ -272,8 +272,8 @@ module cv32e40x_id_stage import cv32e40x_pkg::*;
   //                       |_|                    |___/           //
   //////////////////////////////////////////////////////////////////
 
-  cv32e40x_pc_target
-  cv32e40x_pc_target_i
+  cv32e40s_pc_target
+  cv32e40s_pc_target_i
   (
     .ctrl_transfer_target_mux_sel_i ( ctrl_transfer_target_mux_sel),
     .pc_id_i                        ( if_id_pipe_i.pc             ),
@@ -407,7 +407,7 @@ module cv32e40x_id_stage import cv32e40x_pkg::*;
   //                                           //
   ///////////////////////////////////////////////
 
-  cv32e40x_decoder
+  cv32e40s_decoder
     #(
       .A_EXTENSION             ( A_EXTENSION            ),
       .B_EXT                   ( B_EXT                  ),
@@ -713,4 +713,4 @@ module cv32e40x_id_stage import cv32e40x_pkg::*;
   assign id_valid_o = (instr_valid && id_ready_o) || (multi_cycle_id_stall && ex_ready_i); // Allow ID to update id_ex_pipe for misaligned load/stores regardless of halt/ready
 
 
-endmodule // cv32e40x_id_stage
+endmodule // cv32e40s_id_stage

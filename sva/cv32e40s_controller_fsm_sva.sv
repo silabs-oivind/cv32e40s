@@ -25,9 +25,9 @@
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 
-module cv32e40x_controller_fsm_sva
+module cv32e40s_controller_fsm_sva
   import uvm_pkg::*;
-  import cv32e40x_pkg::*;
+  import cv32e40s_pkg::*;
   (
    input logic clk,
    input logic rst_n,
@@ -113,5 +113,5 @@ module cv32e40x_controller_fsm_sva
   assert property (@(posedge clk)
           (ex_wb_pipe_i.wfi_insn && ex_wb_pipe_i.instr_valid) |-> !(id_ex_pipe_i.data_req) )
     else `uvm_error("controller", "LSU instruction follows WFI")
-endmodule // cv32e40x_controller_fsm_sva
+endmodule // cv32e40s_controller_fsm_sva
 

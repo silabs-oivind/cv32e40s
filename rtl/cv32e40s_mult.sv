@@ -25,7 +25,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 //TODO: Document how many writebacks happen for a multicycle mult?
 //      If not 1, interrupts might not work correctly
-module cv32e40x_mult import cv32e40x_pkg::*;
+module cv32e40s_mult import cv32e40s_pkg::*;
 (
   input  logic        clk,
   input  logic        rst_n,
